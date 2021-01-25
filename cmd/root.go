@@ -3,15 +3,17 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
-	"github.com/leighmacdonald/rcon/rcon"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"io"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/leighmacdonald/rcon/rcon"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -21,7 +23,11 @@ var (
 	cfgFile  string
 )
 
-// rootCmd represents the base command when called without any sub commands
+const (
+	timeout = 10
+)
+
+// rootCmd represents the base command when called without any sub commands.
 var rootCmd = &cobra.Command{
 	Use:     "rcon [command]",
 	Short:   "Basic RCON CLI interface",
@@ -81,7 +87,7 @@ var rootCmd = &cobra.Command{
 		}
 		var servers []serverState
 		for _, sc := range envs {
-			conn, err := rcon.Dial(ctx, sc.Host, sc.Password, 10*time.Second)
+			conn, err := rcon.Dial(ctx, sc.Host, sc.Password, timeout*time.Second)
 			if err != nil {
 				log.Fatalf("Failed to dial server")
 			}
@@ -113,7 +119,7 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("rcon (%d hosts)> ", len(servers))
 			cIn, err := reader.ReadString('\n')
 			if err != nil {
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					fmt.Print("\b")
 					os.Exit(0)
 				}
@@ -122,6 +128,7 @@ var rootCmd = &cobra.Command{
 			c := strings.ToLower(strings.Trim(cIn, " \n"))
 			if c == "quit" || c == "exit" {
 				log.Printf("Exiting (user initiated)")
+
 				return
 			}
 			for _, server := range servers {
@@ -152,12 +159,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&host, "host", "H", "",
 		"Remote host, host:port format")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "RCON password")
-
-	var err error
-	err = viper.BindPFlag("env", rootCmd.PersistentFlags().Lookup("env"))
-	err = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
-	err = viper.BindPFlag("password", rootCmd.PersistentFlags().Lookup("password"))
-	if err != nil {
-		log.Fatalf("Failed to bind config flags: %v", err)
+	if err := viper.BindPFlag("env", rootCmd.PersistentFlags().Lookup("env")); err != nil {
+		log.Fatalf("Failed to bind config flags (env): %v", err)
+	}
+	if err := viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host")); err != nil {
+		log.Fatalf("Failed to bind config flags (host): %v", err)
+	}
+	if err := viper.BindPFlag("password", rootCmd.PersistentFlags().Lookup("password")); err != nil {
+		log.Fatalf("Failed to bind config flags (password): %v", err)
 	}
 }

@@ -5,6 +5,7 @@ run:
     - data/
     - .vscode/
     - .directory/
+    - .idea/
     - debug/
     - vendor/
   skip-files:
@@ -127,7 +128,7 @@ linters-settings:
 
 linters:
   enable-all: true
-  disable:
+  disable: gochecknoglobals,wsl,exhaustivestruct,gochecknoinits,forbidigo
 
 issues:
   exclude:

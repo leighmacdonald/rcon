@@ -1,6 +1,13 @@
 GO_FLAGS = -ldflags "-X 'github.com/leighmacdonald/rcon/rcon.BuildVersion=`git describe --abbrev=0`'"
 
-all: lin win mac
+all: lint test lin win mac
+
+lint:
+	gofumpt -l -w .
+	golangci-lint.exe run
+
+test:
+	go test -v ./...
 
 lin:
 	@GOOS=linux GOARCH=amd64 go build $(GO_FLAGS) -o build/linux64/rcon main.go

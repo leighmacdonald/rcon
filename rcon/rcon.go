@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -23,7 +24,10 @@ const (
 
 // 12 byte header, up to 4096 bytes of data, 2 bytes for null terminators.
 // this should be the absolute max size of a single response.
-const readBufferSize = 4110
+const (
+	readBufferSize = 4110
+	reqBaseID      = 0x7fffffff
+)
 
 type RemoteConsole struct {
 	conn      net.Conn
@@ -41,45 +45,43 @@ var (
 	ErrResponseTooLong     = errors.New("rcon: response too long")
 )
 
-var (
-	BuildVersion = "master"
-)
+var BuildVersion = "master"
 
 func Dial(ctx context.Context, host, password string, timeout time.Duration) (*RemoteConsole, error) {
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "tcp", host)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "Failed to connect to remote server")
 	}
 	var reqID int
-	r := &RemoteConsole{conn: conn, reqID: 0x7fffffff}
+	r := &RemoteConsole{conn: conn, reqID: reqBaseID}
 	reqID, err = r.writeCmd(cmdAuth, password)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Failed to write to remote host")
 	}
 
 	r.readBuf = make([]byte, readBufferSize)
 
-	var respType, requestId int
-	respType, requestId, _, err = r.readResponse(timeout)
+	var respType, requestID int
+	respType, requestID, _, err = r.readResponse(timeout)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Failed to read response from remote host")
 	}
 
 	// if we didn't get an auth response back, try again. it is often a bug
 	// with RCON servers that you get an empty response before receiving the
 	// auth response.
 	if respType != respAuthResponse {
-		respType, requestId, _, err = r.readResponse(timeout)
+		respType, requestID, _, err = r.readResponse(timeout)
 	}
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "Failed to read response")
 	}
 	if respType != respAuthResponse {
-		return nil, ErrInvalidAuthResponse
+		return nil, errors.Wrap(ErrInvalidAuthResponse, "Invalid authentication response")
 	}
-	if requestId != reqID {
-		return nil, ErrAuthFailed
+	if requestID != reqID {
+		return nil, errors.Wrap(ErrAuthFailed, "Invalid authentication")
 	}
 
 	return r, nil
@@ -93,20 +95,22 @@ func (r *RemoteConsole) RemoteAddr() net.Addr {
 	return r.conn.RemoteAddr()
 }
 
-func (r *RemoteConsole) Write(cmd string) (requestId int, err error) {
+func (r *RemoteConsole) Write(cmd string) (requestID int, err error) {
 	return r.writeCmd(cmdExecCommand, cmd)
 }
 
-func (r *RemoteConsole) Read() (response string, requestId int, err error) {
+func (r *RemoteConsole) Read() (response string, requestID int, err error) {
 	var respType int
 	var respBytes []byte
-	respType, requestId, respBytes, err = r.readResponse(2 * time.Minute)
+	const respTimeout = 2
+	respType, requestID, respBytes, err = r.readResponse(respTimeout * time.Minute)
 	if err != nil || respType != respResponse {
 		response = ""
-		requestId = 0
+		requestID = 0
 	} else {
 		response = string(respBytes)
 	}
+
 	return
 }
 
@@ -114,66 +118,83 @@ func (r *RemoteConsole) Close() error {
 	return r.conn.Close()
 }
 
-func newRequestId(id int32) int32 {
-	if id&0x0fffffff != id {
-		return int32((time.Now().UnixNano() / 100000) % 100000)
+func newRequestID(id int32) int32 {
+	const (
+		checkID = 0x0fffffff
+		timeDiv = 100000
+	)
+	if id&checkID != id {
+		return int32((time.Now().UnixNano() / timeDiv) % timeDiv)
 	}
+
 	return id + 1
 }
 
 func (r *RemoteConsole) writeCmd(cmdType int32, str string) (int, error) {
+	const (
+		cmdPrefixSize = 14
+		packetPrefix  = 10
+		timeout       = 10 * time.Second
+	)
 	if len(str) > 1024-10 {
-		return -1, ErrCommandTooLong
+		return -1, errors.Wrap(ErrCommandTooLong, "Command too long")
 	}
-
-	buffer := bytes.NewBuffer(make([]byte, 0, 14+len(str)))
+	buffer := bytes.NewBuffer(make([]byte, 0, cmdPrefixSize+len(str)))
 	reqID := atomic.LoadInt32(&r.reqID)
-	reqID = newRequestId(reqID)
+	reqID = newRequestID(reqID)
 	atomic.StoreInt32(&r.reqID, reqID)
 
 	// packet size
-	if err := binary.Write(buffer, binary.LittleEndian, int32(10+len(str))); err != nil {
-		return 0, err
+	if err := binary.Write(buffer, binary.LittleEndian, int32(packetPrefix+len(str))); err != nil {
+		return 0, errors.Wrap(err, "Failed to write packet")
 	}
 
 	// request id
 	if err := binary.Write(buffer, binary.LittleEndian, reqID); err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "Failed to write packet")
 	}
 
 	// auth cmd
 	if err := binary.Write(buffer, binary.LittleEndian, cmdType); err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "Failed to write packet")
 	}
 
 	// string (null terminated)
 	buffer.WriteString(str)
 	if err := binary.Write(buffer, binary.LittleEndian, byte(0)); err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "Failed to write packet")
 	}
 
 	// string 2 (null terminated)
 	// we don't have a use for string 2
 	if err := binary.Write(buffer, binary.LittleEndian, byte(0)); err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "Failed to write packet")
 	}
 
-	if err := r.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return 0, err
+	if err := r.conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, errors.Wrap(err, "Failed to set write deadline")
 	}
 	_, err := r.conn.Write(buffer.Bytes())
-	return int(reqID), err
+	if err != nil {
+		return 0, errors.Wrap(err, "Failed to write packet")
+	}
+
+	return int(reqID), nil
 }
 
-func (r *RemoteConsole) readResponse(timeout time.Duration) (int, int, []byte, error) {
+func (r *RemoteConsole) readResponse(timeout time.Duration) (respType int, reqID int, body []byte, err error) {
+	const (
+		maxRespSize = 4106
+		packetSize  = 4
+		formatSize  = 10
+	)
 	r.readMu.Lock()
 	defer r.readMu.Unlock()
 
-	if err := r.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		return 0, 0, nil, err
+	if err = r.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, 0, nil, errors.Wrap(err, "Failed to set read deadline")
 	}
 	var size int
-	var err error
 	if r.queuedBuf != nil {
 		copy(r.readBuf, r.queuedBuf)
 		size = len(r.queuedBuf)
@@ -181,37 +202,37 @@ func (r *RemoteConsole) readResponse(timeout time.Duration) (int, int, []byte, e
 	} else {
 		size, err = r.conn.Read(r.readBuf)
 		if err != nil {
-			return 0, 0, nil, err
+			return 0, 0, nil, errors.Wrap(err, "Failed to read response")
 		}
 	}
-	if size < 4 {
+	if size < packetSize {
 		// need the 4 byte packet size...
-		s, err := r.conn.Read(r.readBuf[size:])
-		if err != nil {
-			return 0, 0, nil, err
+		s, err2 := r.conn.Read(r.readBuf[size:])
+		if err2 != nil {
+			return 0, 0, nil, errors.Wrap(err2, "Failed to read response")
 		}
 		size += s
 	}
 
 	var dataSize32 int32
 	b := bytes.NewBuffer(r.readBuf[:size])
-	if err := binary.Read(b, binary.LittleEndian, &dataSize32); err != nil {
-		return 0, 0, nil, err
+	if err = binary.Read(b, binary.LittleEndian, &dataSize32); err != nil {
+		return 0, 0, nil, errors.Wrap(err, "Failed to read response data")
 	}
-	if dataSize32 < 10 {
-		return 0, 0, nil, ErrUnexpectedFormat
+	if dataSize32 < formatSize {
+		return 0, 0, nil, errors.Wrap(ErrUnexpectedFormat, "Unexpected format read")
 	}
 
 	totalSize := size
 	dataSize := int(dataSize32)
-	if dataSize > 4106 {
-		return 0, 0, nil, ErrResponseTooLong
+	if dataSize > maxRespSize {
+		return 0, 0, nil, errors.Wrap(ErrResponseTooLong, "response too long")
 	}
 
 	for dataSize+4 > totalSize {
-		size, err := r.conn.Read(r.readBuf[totalSize:])
+		size, err = r.conn.Read(r.readBuf[totalSize:])
 		if err != nil {
-			return 0, 0, nil, err
+			return 0, 0, nil, errors.Wrap(err, "error reading from connection")
 		}
 		totalSize += size
 	}
@@ -226,25 +247,29 @@ func (r *RemoteConsole) readResponse(timeout time.Duration) (int, int, []byte, e
 	return r.readResponseData(data)
 }
 
-func (r *RemoteConsole) readResponseData(data []byte) (int, int, []byte, error) {
-	var requestId, responseType int32
+func (r *RemoteConsole) readResponseData(data []byte) (respType int, reqID int, body []byte, err error) {
+	const (
+		delimiter = 0x00
+	)
+	var requestID, responseType int32
 	var response []byte
 	b := bytes.NewBuffer(data)
-	if err := binary.Read(b, binary.LittleEndian, &requestId); err != nil {
-		return 0, 0, nil, err
+	if err = binary.Read(b, binary.LittleEndian, &requestID); err != nil {
+		return 0, 0, nil, errors.Wrap(err, "Failed to read request id")
 	}
-	if err := binary.Read(b, binary.LittleEndian, &responseType); err != nil {
-		return 0, 0, nil, err
+	if err = binary.Read(b, binary.LittleEndian, &responseType); err != nil {
+		return 0, 0, nil, errors.Wrap(err, "Failed to read response type")
 	}
-	response, err := b.ReadBytes(0x00)
-	if err != nil && err != io.EOF {
-		return 0, 0, nil, err
+	response, err = b.ReadBytes(delimiter)
+	if err != nil && errors.Is(err, io.EOF) {
+		return 0, 0, nil, errors.Wrap(err, "Failed to read response body")
 	}
 	if err == nil {
 		// if we didn't hit EOF, we have a null byte to remove
 		response = response[:len(response)-1]
 	}
-	return int(responseType), int(requestId), response, nil
+
+	return int(responseType), int(requestID), response, nil
 }
 
 func (r *RemoteConsole) Exec(c string) (string, error) {

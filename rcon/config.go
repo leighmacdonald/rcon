@@ -1,12 +1,13 @@
 package rcon
 
 import (
+	"os"
+	"strings"
+
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/log"
 	"github.com/spf13/viper"
-	"os"
-	"strings"
 )
 
 var Config *rootConfig
@@ -41,18 +42,18 @@ func ReadConfig(cfgFile string) error {
 	if err := viper.ReadInConfig(); err == nil {
 		log.Debugf("Using config file: %s", viper.ConfigFileUsed())
 		cfg := &rootConfig{}
-		if err := viper.Unmarshal(cfg); err != nil {
-			return errors.Wrapf(err, "Failed to parse config")
+		if err2 := viper.Unmarshal(cfg); err2 != nil {
+			return errors.Wrapf(err2, "Failed to parse config")
 		}
 		for _, server := range cfg.Servers {
 			if !strings.Contains(server.Host, ":") {
-				server.Host = server.Host + ":27015"
+				server.Host += ":27015"
 			}
 		}
 		Config = cfg
-		return nil
 	} else {
 		log.Errorf("Failed to read config: %v", err)
 	}
+
 	return nil
 }
