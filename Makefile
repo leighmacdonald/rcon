@@ -1,6 +1,6 @@
 GO_FLAGS = -ldflags "-X 'github.com/leighmacdonald/rcon/rcon.BuildVersion=`git describe --abbrev=0`'"
 
-all: lint test lin win mac
+all: lin win mac
 
 lint:
 	gofumpt -l -w .
