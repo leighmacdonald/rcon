@@ -14,11 +14,12 @@ Basic flags for connecting. Host and password must be set. If the host does not 
     
     Flags:
       -h, --help              help for rcon
+      -e  --env               Server environment(s) to use. Comma separated list of env names (eg: us-1,us-2)
       -H, --host string       Remote host, host:port format (default "localhost:27015")
       -p, --password string   RCON password
       -v, --version           version for rcon
 
-If you do not specify a command a simple REPL shell will open instead as shown below    
+If you do not specify a command a simple REPL shell will open instead as shown below:
     
     $ rcon -H tf2-server.com -p asdf       
     rcon> status
@@ -39,6 +40,39 @@ If you do not specify a command a simple REPL shell will open instead as shown b
     rcon> quit
     $
     
+## Configuration
+
+You can create a config file to save yourself from remembering all your server details each time.
+
+The config file can be located at `~/rcon.yaml` or `./rcon.yaml`.
+
+Below is an example demonstrating how to share common values `__defaults` among all servers.
+
+```yaml
+# When no server env is specified use these as the default
+default_servers: [ "us-1", "us-2",  "us-3"]
+
+# Set to "" to enable rcon console, otherwise this command will be executed and the program will exit
+default_command: ""
+
+# Example of sharing config values between hosts
+__defaults: &defaults
+    host: localhost:27015
+    password: your_common_rcon_password
+
+# Known server environments
+servers:
+    us-1:
+        host: "us1.uncledane.com"
+        password: custom_password
+    us-2:
+        <<: *defaults
+        host: "us2.uncledane.com"
+    us-3:
+        <<: *defaults
+        host: "us3.uncledane.com"
+```
+
 ## Library Usage
 
 ```go
