@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/leighmacdonald/rcon/rcon"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/leighmacdonald/rcon/rcon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -48,7 +48,7 @@ var rootCmd = &cobra.Command{
 		}
 		// Using CLI args for env config
 		if len(envs) > 0 && (password != "" || host != "") {
-			log.Warnf("Host and Password options are ignored when using env config")
+			log.Printf("Host and Password options are ignored when using env config\n")
 		}
 		if len(envs) == 0 {
 			for _, name := range rcon.Config.DefaultServers {
@@ -96,7 +96,7 @@ var rootCmd = &cobra.Command{
 		defer func() {
 			for _, server := range servers {
 				if err := server.conn.Close(); err != nil {
-					log.Errorf("Failed to close connection properly: %v", err)
+					log.Printf("Failed to close connection properly: %v", err)
 				}
 			}
 		}()
