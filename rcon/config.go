@@ -1,13 +1,12 @@
 package rcon
 
 import (
-	"os"
-	"strings"
-
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
-	"github.com/prometheus/common/log"
 	"github.com/spf13/viper"
+	"log"
+	"os"
+	"strings"
 )
 
 var Config *rootConfig
@@ -24,7 +23,7 @@ type Server struct {
 	Password string `mapstructure:"password"`
 }
 
-// Read reads in config file and ENV variables if set.
+// ReadConfig reads in config file and ENV variables if set.
 func ReadConfig(cfgFile string) error {
 	// Find home directory.
 	home, _ := homedir.Dir()
@@ -40,7 +39,7 @@ func ReadConfig(cfgFile string) error {
 	viper.AutomaticEnv() // read in environment variables that match
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		log.Debugf("Using config file: %s", viper.ConfigFileUsed())
+		log.Printf("Using config file: %s", viper.ConfigFileUsed())
 		cfg := &rootConfig{}
 		if err2 := viper.Unmarshal(cfg); err2 != nil {
 			return errors.Wrapf(err2, "Failed to parse config")
@@ -52,7 +51,7 @@ func ReadConfig(cfgFile string) error {
 		}
 		Config = cfg
 	} else {
-		log.Errorf("Failed to read config: %v", err)
+		log.Printf("Failed to read config: %v", err)
 	}
 
 	return nil

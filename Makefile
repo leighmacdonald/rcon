@@ -1,4 +1,4 @@
-GO_FLAGS = -ldflags "-X 'github.com/leighmacdonald/rcon/rcon.BuildVersion=`git describe --abbrev=0`'"
+GO_FLAGS = -ldflags "-X 'github.com/leighmacdonald/rcon.BuildVersion=`git describe --abbrev=0`'"
 
 all: lin win mac
 

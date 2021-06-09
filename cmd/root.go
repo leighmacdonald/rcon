@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/leighmacdonald/rcon/rcon"
 	"io"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/leighmacdonald/rcon/rcon"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
